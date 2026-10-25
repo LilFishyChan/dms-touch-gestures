@@ -2,15 +2,22 @@
     "id": "nabuTouchGestures",
     "name": "Touch Gestures",
     "description": "Touchscreen swipe gestures for niri",
-    "version": "0.1.0",
+    "version": "0.1.1",
     "author": "LilFishyChan",
     "icon": "gesture",
     "type": "composite",
-    "capabilities": ["daemon", "dankbar-widget"],
+    "capabilities": [
+        "daemon",
+        "dankbar-widget"
+    ],
     "components": {
         "daemon": "./Daemon.qml",
         "widget": "./TouchGestures.qml"
     },
     "settings": "./TouchGesturesSettings.qml",
-    "permissions": ["settings_read", "settings_write", "process"]
+    "permissions": [
+        "settings_read",
+        "settings_write",
+        "process"
+    ]
 }

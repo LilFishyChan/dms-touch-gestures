@@ -51,8 +51,10 @@ A gesture key is `<fingers>_<region>_<direction>`:
 
 Examples: `1_bottom_up`, `1_top-left_down`, `3_center_left`, `4_center_up`.
 
-- **Corners are tested before edges** and claim a wider band, otherwise the corner overlap swallows
-  every corner swipe.
+- **Corners are L-shaped, not square.** A corner zone is the two thin strips that hug the screen's two
+  edges there (each as thick as the edge band), so the area *inside* the old square now counts as
+  `center` — only touches actually on the edge register as a corner swipe.
+- **Corners are tested before edges**, otherwise the corner strips would be swallowed by the edges.
 - **Multi-finger touches always use `center`** — an edge band only means something for one finger.
 - **A touch shorter than the swipe minimum is a tap and is ignored**, so tapping an on-screen button
   that happens to sit on a gesture strip does not fire a gesture.
@@ -88,8 +90,9 @@ three-plus fingers — and leave the rest empty.
 
 | Setting | Meaning |
 |---|---|
-| Edge band width | Percent of the short side counted as an edge |
-| Corner size | Percent of the short side counted as a corner (wider than the edge band) |
+| Edge band thickness | How thick the bands are, in pixels (2–30) |
+| Edge band length | How far the bands run along each edge, as a share of the *middle span* — the short side minus both corners (10–100%) |
+| Corner arm length | How far the L-shaped corner zones reach along each edge (5–45%) |
 | Minimum swipe distance | Below this a touch is a tap and ignored |
 | One finger | 4 edge swipes + 4 corner swipes |
 | Three fingers | up / down / left / right |
@@ -115,3 +118,20 @@ translations/zh_CN.json      Chinese translation
 ## License
 
 MIT — see [LICENSE](LICENSE).
+
+## Previewing the zones
+
+Changing any zone-related setting draws the whole layout on a full-screen overlay for three seconds:
+the four edge bands plus the four L-shaped corners. The overlay sets `mask: Region {}`, so it never
+receives touch — it is purely a guide.
+
+The thickness is in **logical** pixels; the daemon multiplies by the output scale before comparing
+against evdev coordinates, which are physical. The band length is relative to the middle span
+(short side minus both corners), so raising it never eats the centre zone.
+
+## Zone preview implementation notes
+
+`Daemon.qml` owns both the gesture process and the overlay. The overlay is a `PanelWindow` with
+`anchors` on all four sides and `mask: Region {}`; the zone geometry comes from a 500 ms poll of the
+settings node, and a change in any of the three values re-arms a 3 s timer. First read never shows
+the overlay.

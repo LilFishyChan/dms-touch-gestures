@@ -35,28 +35,32 @@ LOG_FILE = STATE_DIR / "log"
 
 DEFAULTS = {
     "active": True,
-    "edge_width_pct": 12,      # 边缘带占屏幕短边的百分比
+    "edge_width_px": 5,        # 边缘带粗细（逻辑像素）
+    "edge_width_pct": 50,      # 边缘带长度，占中段（短边减去两端角落）的百分比
     "corner_size_pct": 22,     # 角落区域占屏幕短边的百分比
     "swipe_min_pct": 6,        # 最小滑动距离（屏幕短边百分比）
     "device": "",              # 空 = 自动探测
-    # 默认只给底部上滑一个动作，其余留空由用户自己配 ——
-    # 手势会同时被前台应用收到，默认全开会让每个滑动都带回声。
-    "1_bottom_up": "toggle-overview",
-    "1_top_down": "",
-    "1_left_right": "",
-    "1_right_left": "",
-    "1_top-left_down": "",
-    "1_top-right_down": "",
-    "1_bottom-left_up": "",
-    "1_bottom-right_up": "",
-    "3_center_up": "",
-    "3_center_down": "",
-    "3_center_left": "",
-    "3_center_right": "",
-    "4_center_up": "",
-    "4_center_down": "",
-    "4_center_left": "",
-    "4_center_right": "",
+    # 全部默认 "none"：手势会同时被前台应用收到，任何预绑动作都会让那个方向
+    # 出现「应用也在动 + 桌面也在动」的双重反应。由用户在设置页按需开启。
+    # 用 "none" 而不是 ""：DMS 的 SelectionSetting 有
+    #   root.value = labelToValue[newValue] || newValue
+    # 空字符串是 falsy，会回退成选项的显示文字存进去。
+    "1_bottom_up": "none",
+    "1_top_down": "none",
+    "1_left_right": "none",
+    "1_right_left": "none",
+    "1_top-left_down": "none",
+    "1_top-right_down": "none",
+    "1_bottom-left_up": "none",
+    "1_bottom-right_up": "none",
+    "3_center_up": "none",
+    "3_center_down": "none",
+    "3_center_left": "none",
+    "3_center_right": "none",
+    "4_center_up": "none",
+    "4_center_down": "none",
+    "4_center_left": "none",
+    "4_center_right": "none",
     "custom_1_bottom_up": "",
     "custom_1_top_down": "",
     "custom_1_left_right": "",
@@ -232,27 +236,64 @@ def to_logical(nx: float, ny: float, transform: str) -> tuple[float, float]:
     return nx, ny
 
 
-def region_of(nx: float, ny: float, edge: float, corner: float) -> str:
-    """归一化坐标 (0..1) → 9 区域。edge/corner 也是归一化比例。"""
-    left, right = nx < edge, nx > 1.0 - edge
-    top, bottom = ny < edge, ny > 1.0 - edge
-    cl, cr = nx < corner, nx > 1.0 - corner
-    ct, cb = ny < corner, ny > 1.0 - corner
-    if ct and cl:
+def read_scale() -> float:
+    """读 niri 输出缩放，把逻辑像素换算成 evdev 的物理像素。"""
+    try:
+        env = dict(os.environ)
+        if not env.get("NIRI_SOCKET"):
+            out = subprocess.run(["systemctl", "--user", "show-environment"],
+                                 capture_output=True, text=True, timeout=3).stdout
+            for line in out.splitlines():
+                if line.startswith("NIRI_SOCKET="):
+                    env["NIRI_SOCKET"] = line.split("=", 1)[1]
+                    break
+        res = subprocess.run(["niri", "msg", "--json", "outputs"],
+                             capture_output=True, text=True, timeout=3, env=env)
+        for node in json.loads(res.stdout).values():
+            scale = (node.get("logical") or {}).get("scale")
+            if scale:
+                return float(scale)
+    except Exception:  # noqa: BLE001
+        pass
+    return 1.0
+
+
+def region_of(nx: float, ny: float, thickness: float,
+              length_x: float, length_y: float,
+              corner_x: float, corner_y: float) -> str:
+    """归一化坐标 (0..1) → 9 区域。
+
+    thickness  边带粗细（归一化）
+    length_x   顶部/底部带沿屏幕宽度的覆盖长度（归一化，居中）
+    length_y   左边/右边带沿屏幕高度的覆盖长度（归一化，居中）
+    corner_x   角落沿水平边的臂长（归一化到屏幕宽）
+    corner_y   角落沿垂直边的臂长（归一化到屏幕高）
+
+    长度基准是**它自己那条边**，不是短边：顶部带看宽、左右带看高。
+    角落是 L 形（两臂都只有 thickness 粗），不是方块。
+    """
+    t = thickness
+
+    # 四角：L 形 = 沿水平边的横段 ∪ 沿垂直边的竖段
+    if (nx < corner_x and ny < t) or (ny < corner_y and nx < t):
         return "top-left"
-    if ct and cr:
+    if (nx > 1.0 - corner_x and ny < t) or (ny < corner_y and nx > 1.0 - t):
         return "top-right"
-    if cb and cl:
+    if (nx < corner_x and ny > 1.0 - t) or (ny > 1.0 - corner_y and nx < t):
         return "bottom-left"
-    if cb and cr:
+    if (nx > 1.0 - corner_x and ny > 1.0 - t) or (ny > 1.0 - corner_y and nx > 1.0 - t):
         return "bottom-right"
-    if top:
+
+    # 四边：沿自己那条边居中覆盖
+    half_x = length_x / 2.0
+    half_y = length_y / 2.0
+    if ny < t and abs(nx - 0.5) <= half_x:
         return "top"
-    if bottom:
+    if ny > 1.0 - t and abs(nx - 0.5) <= half_x:
         return "bottom"
-    if left:
+    if nx < t and abs(ny - 0.5) <= half_y:
         return "left"
-    if right:
+    if nx > 1.0 - t and abs(ny - 0.5) <= half_y:
         return "right"
     return "center"
 
@@ -270,7 +311,8 @@ def run_action(cfg: dict, key: str) -> None:
     if not cfg.get("active", True):
         return
     action = cfg.get(key, "")
-    if not action:
+    # "none" 是设置页的哨兵值；空串和旧版本存下来的中文标签也按无动作处理
+    if not action or action == "none" or action.startswith("无"):
         return
     if action == "custom":
         cmd = cfg.get("custom_" + key, "").strip()
@@ -297,6 +339,7 @@ class Recognizer:
         self.cfg = cfg
         self.w, self.h = size
         self.short = min(self.w, self.h)
+        self.scale = read_scale()
         self.slots: dict[int, dict] = {}
         self.cur_slot = 0
         self.touching = False
@@ -353,7 +396,16 @@ class Recognizer:
         if not self.start or not self.last:
             return
         cfg = self.cfg
-        edge = cfg.get("edge_width_pct", 12) / 100.0
+        # 粗细：像素（逻辑 px → 物理 px → 归一化到短边）
+        thickness = (cfg.get("edge_width_px", 5) * self.scale) / self.short
+        # 角落臂长是绝对长度（按短边百分比算），分别归一化到两条边
+        corner_px = corner * self.short
+        corner_x = corner_px / self.w
+        corner_y = corner_px / self.h
+        # 长度基准是该边自身：顶部/底部看宽，左/右看高
+        pct = cfg.get("edge_width_pct", 50) / 100.0
+        length_x = max(0.0, 1.0 - 2.0 * corner_x) * pct
+        length_y = max(0.0, 1.0 - 2.0 * corner_y) * pct
         corner = cfg.get("corner_size_pct", 22) / 100.0
         minimum = cfg.get("swipe_min_pct", 6) / 100.0
 
@@ -363,7 +415,7 @@ class Recognizer:
         l0 = to_logical(n0[0], n0[1], self.transform)
         l1 = to_logical(n1[0], n1[1], self.transform)
 
-        region = region_of(l0[0], l0[1], edge, corner)
+        region = region_of(l0[0], l0[1], thickness, length_x, length_y, corner_x, corner_y)
         dx, dy = l1[0] - l0[0], l1[1] - l0[1]
 
         # 归一化坐标下「短边」是 1.0，最小滑动距离直接用比例
@@ -399,8 +451,10 @@ def main() -> int:
         log("找不到触摸屏设备")
         return 1
 
+    rec_scale = read_scale()
     log(f"启动：设备={dev.path} ({dev.name}) 尺寸={size} "
-        f"边缘={cfg.get('edge_width_pct')}% 角落={cfg.get('corner_size_pct')}%")
+        f"边缘带 粗={cfg.get('edge_width_px')}px 长={cfg.get('edge_width_pct')}% "
+        f"角落={cfg.get('corner_size_pct')}% scale={rec_scale}")
 
     rec = Recognizer(cfg, size)
     rec.output = detect_output(dev)
