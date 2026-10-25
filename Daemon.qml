@@ -99,7 +99,9 @@ ShellRoot {
 
         WlrLayershell.layer: WlrLayershell.Overlay
         WlrLayershell.namespace: "nabu-touch-gestures-preview"
-        WlrLayershell.exclusiveZone: 0
+        // -1 = 完全忽略其他 surface 预留的区域，铺满真正的屏幕（含顶部栏/底部
+        // dock 那一条）。0 只是不预留，仍会被已有的 exclusive zone 挤开。
+        WlrLayershell.exclusiveZone: -1
 
         anchors {
             top: true
