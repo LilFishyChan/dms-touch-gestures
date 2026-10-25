@@ -5,7 +5,9 @@ import Quickshell.Wayland
 import qs.Common
 
 // daemon surface：手势守护进程常驻，跟控制中心面板是否展开无关。
-Item {
+// 根必须是 ShellRoot：PanelWindow 是 shell surface，不能挂在普通 Item 下
+// （否则日志里出现 "Created graphical object was not placed in the graphics scene"）。
+ShellRoot {
     id: root
 
     readonly property string pluginDir: Qt.resolvedUrl(".").toString().replace("file://", "")
